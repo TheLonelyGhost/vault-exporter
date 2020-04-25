@@ -61,7 +61,12 @@ def list_kv_mount_points(client) -> List[Tuple[str, str]]:
 
 
 def list_namespaces(client) -> List[str]:
-    result = client.sys.list_namespaces()['data']
+    try:
+        result = client.sys.list_namespaces()['data']
+    except hvac.exceptions.InvalidPath:
+        # sometimes Vault Enterprise will puke here if not using
+        # namespaces. We should silently move on
+        return []
 
     return list(sorted([namespace[:-1] for namespace in result['keys']]))
 
