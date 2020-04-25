@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
-from typing import Dict, List, Tuple
-from pprint import pprint  # noqa
-from pathlib import Path
 import json
 import logging
+from pathlib import Path
+from pprint import pprint  # noqa
+from typing import Dict, List, Optional, Tuple
 
 import hvac
-
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -45,11 +44,14 @@ def recursively_list_secrets(client, path='', mount='secret', version='1') -> Li
     return list(sorted(output))
 
 
-def read_secret(client, path='', mount='secret', version='1') -> Dict[str, str]:
-    if version == '1':
-        result = client.secrets.kv.v1.read_secret(path=path, mount_point=mount)['data']
-    else:
-        result = client.secrets.kv.v2.read_secret_version(path=path, mount_point=mount)['data']['data']
+def read_secret(client, path='', mount='secret', version='1') -> Optional[Dict[str, str]]:
+    try:
+        if version == '1':
+            result = client.secrets.kv.v1.read_secret(path=path, mount_point=mount)['data']
+        else:
+            result = client.secrets.kv.v2.read_secret_version(path=path, mount_point=mount)['data']['data']
+    except hvac.exceptions.InvalidPath:
+        return None
 
     return result
 
@@ -79,13 +81,17 @@ def export_secrets(client, namespace='', local_path='tmp'):
         log.info('Found mount (v{}) at {!r}'.format(version, mount))
         base_dir = Path(tmp_dir) / Path(mount)
         for path in recursively_list_secrets(client=client, mount=mount, version=version):
+            secret = read_secret(client=client, path=path, mount=mount, version=version)
+            if not secret:
+                continue
+
             backup = Path(path)
             (base_dir / backup.parent).mkdir(mode=0o750, parents=True, exist_ok=True)
 
             target = Path(str(base_dir / backup) + '.json')
 
             with target.open('w') as f:
-                f.write(json.dumps(read_secret(client=client, path=path, mount=mount, version=version)))
+                f.write(json.dumps(secret))
             log.info('Wrote {}'.format(target))
 
 
